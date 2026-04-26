@@ -2,136 +2,139 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image to Desmos Graph</title>
+    <title>Desmos Multi-Color Grapher</title>
     <style>
-        body { font-family: sans-serif; max-width: 800px; margin: 20px auto; padding: 20px; line-height: 1.6; background: #f4f4f9; }
-        .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        #canvas { border: 1px solid #ccc; display: none; }
-        textarea { width: 100%; height: 150px; margin-top: 10px; font-family: monospace; padding: 10px; border: 1px solid #ddd; }
-        .preview-img { max-width: 300px; margin-top: 10px; border-radius: 4px; }
-        button { background: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; }
-        button:hover { background: #45a049; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a1a; color: #eee; max-width: 900px; margin: auto; padding: 20px; }
+        .card { background: #2d2d2d; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        canvas { border: 1px solid #444; background: #000; max-width: 100%; height: auto; margin: 10px 0; }
+        textarea { width: 100%; height: 200px; background: #111; color: #0f0; border: 1px solid #444; padding: 10px; font-family: 'Courier New', monospace; font-size: 12px; }
+        .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+        input[type="range"] { width: 100%; }
+        button { background: #007bff; color: white; border: none; padding: 12px; border-radius: 6px; cursor: pointer; width: 100%; font-weight: bold; }
+        button:hover { background: #0056b3; }
+        .color-tag { display: inline-block; width: 20px; height: 20px; border-radius: 50%; vertical-align: middle; margin-right: 5px; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h2>Vẽ đồ thị Desmos từ hình ảnh</h2>
-    <p>Chọn một tấm ảnh (hình nét vẽ đơn giản) để lấy phương trình Fourier.</p>
+<div class="card">
+    <h2>Vẽ đồ thị Desmos Đa Sắc</h2>
     
-    <input type="file" id="upload" accept="image/*">
-    <br><br>
-    <canvas id="canvas"></canvas>
-    
-    <div id="result-area" style="display:none;">
-        <h3>Kết quả (Copy dán vào Desmos):</h3>
-        <p>Số lượng vòng tròn (Độ chi tiết): 
-            <input type="range" id="detail" min="10" max="200" value="50">
-            <span id="detail-val">50</span>
-        </p>
-        <textarea id="output" readonly></textarea>
-        <p><i>Lưu ý: Sau khi dán x(t) và y(t), hãy nhập <b>(x(t), y(t))</b> và chỉnh <b>t</b> từ 0 đến 1.</i></p>
+    <div class="controls">
+        <div>
+            <label>Chọn ảnh (Nhiều màu/Chi tiết):</label><br>
+            <input type="file" id="upload" accept="image/*">
+        </div>
+        <div>
+            <label>Độ chi tiết (Số vòng Fourier): <span id="k-val">30</span></label>
+            <input type="range" id="k-slider" min="5" max="150" value="30">
+        </div>
     </div>
+
+    <canvas id="canvas"></canvas>
+    <button onclick="processImage()">PHÂN TÍCH VÀ TẠO PHÉP TÍCH</button>
+
+    <h3>Kết quả cho Desmos:</h3>
+    <div id="results"></div>
 </div>
 
 <script>
-    const upload = document.getElementById('upload');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
-    const output = document.getElementById('output');
-    const detailSlider = document.getElementById('detail');
-    const detailVal = document.getElementById('detail-val');
-    let points = [];
+    const kSlider = document.getElementById('k-slider');
+    const kVal = document.getElementById('k-val');
+    let originalImage = null;
 
-    upload.addEventListener('change', handleImage);
-    detailSlider.addEventListener('input', () => {
-        detailVal.innerText = detailSlider.value;
-        if (points.length > 0) processFourier();
-    });
+    kSlider.oninput = () => kVal.innerText = kSlider.value;
 
-    function handleImage(e) {
+    document.getElementById('upload').onchange = function(e) {
         const reader = new FileReader();
-        reader.onload = function(event) {
-            const img = new Image();
-            img.onload = function() {
-                // Resize để xử lý nhanh hơn
+        reader.onload = (event) => {
+            originalImage = new Image();
+            originalImage.onload = () => {
                 canvas.width = 400;
                 canvas.height = 400;
-                ctx.drawImage(img, 0, 0, 400, 400);
-                
-                extractPoints();
-                processFourier();
-                document.getElementById('result-area').style.display = 'block';
-            }
-            img.src = event.target.result;
-        }
+                ctx.drawImage(originalImage, 0, 0, 400, 400);
+            };
+            originalImage.src = event.target.result;
+        };
         reader.readAsDataURL(e.target.files[0]);
-    }
+    };
 
-    function extractPoints() {
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const data = imageData.data;
-        points = [];
+    function processImage() {
+        if (!originalImage) return;
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imgData.data;
+        
+        // Bước 1: Nhóm các điểm theo màu (Color Clustering đơn giản)
+        const groups = {}; // { "r,g,b": [points] }
 
-        // Thuật toán quét điểm đen cơ bản
-        for (let y = 0; y < canvas.height; y += 2) {
-            for (let x = 0; x < canvas.width; x += 2) {
+        for (let y = 0; y < canvas.height; y += 3) {
+            for (let x = 0; x < canvas.width; x += 3) {
                 const i = (y * canvas.width + x) * 4;
-                const brightness = (data[i] + data[i+1] + data[i+2]) / 3;
-                if (brightness < 128) {
-                    points.push({x: x - 200, y: 200 - y}); // Đưa về tâm (0,0)
+                const r = Math.round(data[i] / 50) * 50; // Làm tròn màu để nhóm
+                const g = Math.round(data[i+1] / 50) * 50;
+                const b = Math.round(data[i+2] / 50) * 50;
+                
+                if (r + g + b < 650) { // Bỏ qua màu trắng nền
+                    const key = `${r},${g},${b}`;
+                    if (!groups[key]) groups[key] = [];
+                    groups[key].push({x: x - 200, y: 200 - y});
                 }
             }
         }
-        // Sắp xếp điểm theo khoảng cách để tạo đường vẽ liền mạch (Greedy)
-        const sorted = [points.shift()];
-        while (points.length > 0) {
-            let last = sorted[sorted.length - 1];
-            let closestIdx = 0;
-            let minDist = Math.hypot(points[0].x - last.x, points[0].y - last.y);
-            
-            for (let i = 1; i < points.length; i++) {
-                let d = Math.hypot(points[i].x - last.x, points[i].y - last.y);
-                if (d < minDist) {
-                    minDist = d;
-                    closestIdx = i;
-                }
-            }
-            sorted.push(points.splice(closestIdx, 1)[0]);
-        }
-        points = sorted;
+
+        renderResults(groups);
     }
 
-    function processFourier() {
+    function calculateFourier(points, K) {
         const N = points.length;
-        const K = parseInt(detailSlider.value);
+        if (N < 10) return null;
+        
         let x_terms = [];
         let y_terms = [];
 
         for (let k = -K; k <= K; k++) {
-            let re = 0;
-            let im = 0;
+            let re = 0, im = 0;
             for (let n = 0; n < N; n++) {
                 let phi = (2 * Math.PI * k * n) / N;
                 re += points[n].x * Math.cos(phi) + points[n].y * Math.sin(phi);
                 im += -points[n].x * Math.sin(phi) + points[n].y * Math.cos(phi);
             }
-            re /= N;
-            im /= N;
-
+            re /= N; im /= N;
             let amp = Math.sqrt(re*re + im*im);
             let phase = Math.atan2(im, re);
-
-            if (amp > 0.1) {
+            if (amp > 0.05) {
                 x_terms.push(`${amp.toFixed(2)}\\cos(2\\pi \\cdot ${k}t + ${phase.toFixed(2)})`);
                 y_terms.push(`${amp.toFixed(2)}\\sin(2\\pi \\cdot ${k}t + ${phase.toFixed(2)})`);
             }
         }
+        return { x: x_terms.join('+'), y: y_terms.join('+') };
+    }
 
-        output.value = `x(t) = ${x_terms.join(' + ')}\n\ny(t) = ${y_terms.join(' + ')}`;
+    function renderResults(groups) {
+        const resultsDiv = document.getElementById('results');
+        resultsDiv.innerHTML = "";
+        const K = parseInt(kSlider.value);
+
+        Object.keys(groups).forEach((color, index) => {
+            const fourier = calculateFourier(groups[color], K);
+            if (!fourier) return;
+
+            const html = `
+                <div style="margin-top:20px; border-top:1px solid #444; padding-top:10px;">
+                    <span class="color-tag" style="background:rgb(${color})"></span>
+                    <b>Lớp màu ${index + 1}: rgb(${color})</b>
+                    <textarea readonly>
+x_${index}(t) = ${fourier.x}
+y_${index}(t) = ${fourier.y}
+(x_${index}(t), y_${index}(t))  <-- Màu Desmos: rgb(${color})
+                    </textarea>
+                </div>
+            `;
+            resultsDiv.innerHTML += html;
+        });
     }
 </script>
-
 </body>
 </html>
